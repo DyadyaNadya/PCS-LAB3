@@ -6,6 +6,13 @@
 #define ITERATIONS 100
 #define DEFAULT_SIZE 30000000
 
+typedef struct {
+    double add_time;
+    double sub_time;
+    double mul_time;
+    double div_time;
+} OpTimes;
+
 void fill_arrays(double* a, double* b, int size, unsigned int seed) {
     srand(seed);
     for (int i = 0; i < size; i++) {
@@ -14,14 +21,25 @@ void fill_arrays(double* a, double* b, int size, unsigned int seed) {
     }
 }
 
-void array_operations(double* a, double* b, double* add, double* sub,
-    double* mul, double* div, int size) {
-    for (int i = 0; i < size; i++) {
-        add[i] = a[i] + b[i];
-        sub[i] = a[i] - b[i];
-        mul[i] = a[i] * b[i];
-        div[i] = a[i] / b[i];
-    }
+void array_operations_timed(double* a, double* b, double* add, double* sub,
+                          double* mul, double* div, int size, OpTimes* times) {
+    double start;
+    
+    start = MPI_Wtime();
+    for (int i = 0; i < size; i++) add[i] = a[i] + b[i];
+    times->add_time += MPI_Wtime() - start;
+    
+    start = MPI_Wtime();
+    for (int i = 0; i < size; i++) sub[i] = a[i] - b[i];
+    times->sub_time += MPI_Wtime() - start;
+    
+    start = MPI_Wtime();
+    for (int i = 0; i < size; i++) mul[i] = a[i] * b[i];
+    times->mul_time += MPI_Wtime() - start;
+    
+    start = MPI_Wtime();
+    for (int i = 0; i < size; i++) div[i] = a[i] / b[i];
+    times->div_time += MPI_Wtime() - start;
 }
 
 int main(int argc, char* argv[]) {
@@ -31,7 +49,7 @@ int main(int argc, char* argv[]) {
     double* local_add = NULL, * local_sub = NULL;
     double* local_mul = NULL, * local_div = NULL;
 
-    double total_seq_time = 0.0, total_par_time = 0.0;
+    OpTimes seq_times = {0}, par_times = {0};
 
     // Initialize MPI
     MPI_Init(&argc, &argv);
@@ -96,15 +114,12 @@ int main(int argc, char* argv[]) {
                 MPI_Abort(MPI_COMM_WORLD, 1);
             }
 
-            double start = MPI_Wtime();
-            array_operations(a, b, seq_add, seq_sub, seq_mul, seq_div, array_size);
-            total_seq_time += MPI_Wtime() - start;
+            array_operations_timed(a, b, seq_add, seq_sub, seq_mul, seq_div, array_size, &seq_times);
 
             free(seq_add); free(seq_sub); free(seq_mul); free(seq_div);
         }
 
         MPI_Barrier(MPI_COMM_WORLD);
-        double par_start = MPI_Wtime();
 
         // Scatter data with error checking
         int rc;
@@ -120,11 +135,11 @@ int main(int argc, char* argv[]) {
             MPI_Abort(MPI_COMM_WORLD, rc);
         }
 
-        // Parallel operations
-        array_operations(local_a, local_b, local_add, local_sub, local_mul, local_div, local_size);
+        // Parallel operations with timing
+        array_operations_timed(local_a, local_b, local_add, local_sub, 
+                             local_mul, local_div, local_size, &par_times);
 
         MPI_Barrier(MPI_COMM_WORLD);
-        total_par_time += MPI_Wtime() - par_start;
     }
 
     // Print results
@@ -133,10 +148,24 @@ int main(int argc, char* argv[]) {
         printf("Array size: %d\n", array_size);
         printf("Processes: %d\n", num_procs);
         printf("Iterations: %d\n", ITERATIONS);
-        printf("\nAverage times:\n");
-        printf("Sequential: %.6f sec\n", total_seq_time / ITERATIONS);
-        printf("Parallel:   %.6f sec\n", total_par_time / ITERATIONS);
-        printf("Speedup:    %.2fx\n", (total_seq_time / ITERATIONS) / (total_par_time / ITERATIONS));
+        
+        printf("\nAverage sequential times:\n");
+        printf("Addition: %.6f sec\n", seq_times.add_time / ITERATIONS);
+        printf("Subtraction: %.6f sec\n", seq_times.sub_time / ITERATIONS);
+        printf("Multiplication: %.6f sec\n", seq_times.mul_time / ITERATIONS);
+        printf("Division: %.6f sec\n", seq_times.div_time / ITERATIONS);
+        
+        printf("\nAverage parallel times:\n");
+        printf("Addition: %.6f sec\n", par_times.add_time / ITERATIONS);
+        printf("Subtraction: %.6f sec\n", par_times.sub_time / ITERATIONS);
+        printf("Multiplication: %.6f sec\n", par_times.mul_time / ITERATIONS);
+        printf("Division: %.6f sec\n", par_times.div_time / ITERATIONS);
+        
+        printf("\nSpeedup factors:\n");
+        printf("Addition: %.2fx\n", (seq_times.add_time / ITERATIONS) / (par_times.add_time / ITERATIONS));
+        printf("Subtraction: %.2fx\n", (seq_times.sub_time / ITERATIONS) / (par_times.sub_time / ITERATIONS));
+        printf("Multiplication: %.2fx\n", (seq_times.mul_time / ITERATIONS) / (par_times.mul_time / ITERATIONS));
+        printf("Division: %.2fx\n", (seq_times.div_time / ITERATIONS) / (par_times.div_time / ITERATIONS));
     }
 
     // Cleanup
