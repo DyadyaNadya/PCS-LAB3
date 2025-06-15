@@ -3,20 +3,42 @@
 #include <time.h>
 #include <string.h>
 
+typedef struct {
+    double add_time;
+    double sub_time;
+    double mul_time;
+    double div_time;
+} OperationTimes;
+
 void fill_array(double* arr, int size) {
     for (int i = 0; i < size; i++) {
         arr[i] = (double)rand() / RAND_MAX * 100.0;
     }
 }
 
-void array_ops(double* a, double* b, double* res_add, double* res_sub,
-               double* res_mul, double* res_div, int size) {
-    for (int i = 0; i < size; i++) {
-        res_add[i] = a[i] + b[i];
-        res_sub[i] = a[i] - b[i];
-        res_mul[i] = a[i] * b[i];
-        res_div[i] = b[i] != 0 ? a[i] / b[i] : 0;
-    }
+void array_ops_timed(double* a, double* b, double* res_add, double* res_sub,
+                    double* res_mul, double* res_div, int size, OperationTimes* times) {
+    clock_t start;
+    
+    // Сложение
+    start = clock();
+    for (int i = 0; i < size; i++) res_add[i] = a[i] + b[i];
+    times->add_time = (double)(clock() - start) / CLOCKS_PER_SEC;
+    
+    // Вычитание
+    start = clock();
+    for (int i = 0; i < size; i++) res_sub[i] = a[i] - b[i];
+    times->sub_time = (double)(clock() - start) / CLOCKS_PER_SEC;
+    
+    // Умножение
+    start = clock();
+    for (int i = 0; i < size; i++) res_mul[i] = a[i] * b[i];
+    times->mul_time = (double)(clock() - start) / CLOCKS_PER_SEC;
+    
+    // Деление
+    start = clock();
+    for (int i = 0; i < size; i++) res_div[i] = b[i] != 0 ? a[i] / b[i] : 0;
+    times->div_time = (double)(clock() - start) / CLOCKS_PER_SEC;
 }
 
 int main(int argc, char** argv) {
@@ -47,16 +69,18 @@ int main(int argc, char** argv) {
     fill_array(a, array_size);
     fill_array(b, array_size);
 
-    // Выполнение операций
-    clock_t start = clock();
-    array_ops(a, b, res_add, res_sub, res_mul, res_div, array_size);
-    clock_t end = clock();
+    // Выполнение операций с замером времени
+    OperationTimes times;
+    array_ops_timed(a, b, res_add, res_sub, res_mul, res_div, array_size, &times);
 
     // Вывод результатов
     printf("Sequential version results:\n");
     printf("Array size: %d\n", array_size);
-    printf("Execution time: %.3f ms\n",
-          (double)(end - start) * 1000 / CLOCKS_PER_SEC);
+    printf("\nExecution times:\n");
+    printf("Addition time:    %.3f ms\n", times.add_time * 1000);
+    printf("Subtraction time: %.3f ms\n", times.sub_time * 1000);
+    printf("Multiplication time: %.3f ms\n", times.mul_time * 1000);
+    printf("Division time:    %.3f ms\n", times.div_time * 1000);
 
     // Освобождение памяти
     free(a); free(b);
