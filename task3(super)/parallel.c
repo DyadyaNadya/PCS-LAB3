@@ -4,6 +4,13 @@
 #include <mpi.h>
 #include <string.h>
 
+typedef struct {
+    double add_time;
+    double sub_time;
+    double mul_time;
+    double div_time;
+} OperationTimes;
+
 void fill_array(double* arr, int size) {
     unsigned int seed = time(NULL) + MPI_Wtime();
     for (int i = 0; i < size; i++) {
@@ -11,14 +18,29 @@ void fill_array(double* arr, int size) {
     }
 }
 
-void array_ops(double* a, double* b, double* res_add, double* res_sub,
-               double* res_mul, double* res_div, int size) {
-    for (int i = 0; i < size; i++) {
-        res_add[i] = a[i] + b[i];
-        res_sub[i] = a[i] - b[i];
-        res_mul[i] = a[i] * b[i];
-        res_div[i] = b[i] != 0 ? a[i] / b[i] : 0;
-    }
+void array_ops_timed(double* a, double* b, double* res_add, double* res_sub,
+                    double* res_mul, double* res_div, int size, OperationTimes* times) {
+    double start;
+    
+    // Сложение
+    start = MPI_Wtime();
+    for (int i = 0; i < size; i++) res_add[i] = a[i] + b[i];
+    times->add_time = MPI_Wtime() - start;
+    
+    // Вычитание
+    start = MPI_Wtime();
+    for (int i = 0; i < size; i++) res_sub[i] = a[i] - b[i];
+    times->sub_time = MPI_Wtime() - start;
+    
+    // Умножение
+    start = MPI_Wtime();
+    for (int i = 0; i < size; i++) res_mul[i] = a[i] * b[i];
+    times->mul_time = MPI_Wtime() - start;
+    
+    // Деление
+    start = MPI_Wtime();
+    for (int i = 0; i < size; i++) res_div[i] = b[i] != 0 ? a[i] / b[i] : 0;
+    times->div_time = MPI_Wtime() - start;
 }
 
 int main(int argc, char** argv) {
@@ -69,12 +91,18 @@ int main(int argc, char** argv) {
     MPI_Scatter(a, local_size, MPI_DOUBLE, local_a, local_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Scatter(b, local_size, MPI_DOUBLE, local_b, local_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    // Локальные вычисления
-    double start = MPI_Wtime();
-    array_ops(local_a, local_b, local_add, local_sub, local_mul, local_div, local_size);
-    double end = MPI_Wtime();
+    // Локальные вычисления с замером времени
+    OperationTimes local_times;
+    array_ops_timed(local_a, local_b, local_add, local_sub, local_mul, local_div, local_size, &local_times);
 
-    // Сбор результатов
+    // Сбор результатов времени выполнения операций
+    OperationTimes global_times;
+    MPI_Reduce(&local_times.add_time, &global_times.add_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_times.sub_time, &global_times.sub_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_times.mul_time, &global_times.mul_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_times.div_time, &global_times.div_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+    // Сбор результатов вычислений
     double *res_add = NULL, *res_sub = NULL, *res_mul = NULL, *res_div = NULL;
     if (rank == 0) {
         res_add = malloc(array_size * sizeof(double));
@@ -93,9 +121,14 @@ int main(int argc, char** argv) {
         printf("\nParallel version results:\n");
         printf("Array size: %d\n", array_size);
         printf("Number of processes: %d\n", num_procs);
-        printf("Execution time: %.3f ms\n", (end - start) * 1000);
-
-        printf("First 5 results:\n");
+        
+        printf("\nExecution times (max across all processes):\n");
+        printf("Addition time:    %.3f ms\n", global_times.add_time * 1000);
+        printf("Subtraction time: %.3f ms\n", global_times.sub_time * 1000);
+        printf("Multiplication time: %.3f ms\n", global_times.mul_time * 1000);
+        printf("Division time:    %.3f ms\n", global_times.div_time * 1000);
+        
+        printf("\nFirst 5 results:\n");
         for (int i = 0; i < 5 && i < array_size; i++) {
             printf("[%d] +:%.2f -:%.2f *:%.2f /:%.2f\n",
                   i, res_add[i], res_sub[i], res_mul[i], res_div[i]);
